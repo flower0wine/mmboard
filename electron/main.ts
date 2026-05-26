@@ -1,9 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import isDev from 'electron-is-dev';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ballBounds = {
   compact: 96,
@@ -14,6 +11,15 @@ const ballBounds = {
 
 let ballWindow: BrowserWindow | undefined;
 let statsTimer: NodeJS.Timeout | undefined;
+let dragTimer: NodeJS.Timeout | undefined;
+let dragStartCursor: { x: number; y: number } = { x: 0, y: 0 };
+let dragStartWindow: { x: number; y: number } = { x: 0, y: 0 };
+
+function mainLog(...args: unknown[]) {
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  console.log('[主进程]', msg);
+  ballWindow?.webContents.send('floating-ball:log', `[主进程] ${msg}`);
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -86,23 +92,6 @@ function resizeBallWindow(expanded: boolean) {
   ballWindow.setBounds(nextBounds, true);
 }
 
-function moveBallWindow(delta: { deltaX: number; deltaY: number }) {
-  if (!ballWindow || ballWindow.isDestroyed()) return;
-
-  const bounds = ballWindow.getBounds();
-  const display = screen.getDisplayMatching(bounds);
-  const area = display.workArea;
-
-  ballWindow.setBounds(
-    {
-      ...bounds,
-      x: clamp(bounds.x + Math.round(delta.deltaX), area.x, area.x + area.width - bounds.width),
-      y: clamp(bounds.y + Math.round(delta.deltaY), area.y, area.y + area.height - bounds.height),
-    },
-    false,
-  );
-}
-
 function createBallWindow() {
   ballWindow = new BrowserWindow({
     ...getInitialBallBounds(),
@@ -117,7 +106,7 @@ function createBallWindow() {
     skipTaskbar: true,
     alwaysOnTop: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -135,20 +124,106 @@ function createBallWindow() {
     sendBallStats();
   });
 
+  if (isDev) {
+    ballWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+
   loadRenderer(ballWindow, '/floating-ball');
 }
 
-ipcMain.handle('floating-ball:set-expanded', (_event, expanded: boolean) => {
+function snapToEdge(animate = true) {
+  if (!ballWindow || ballWindow.isDestroyed()) return;
+  const bounds = ballWindow.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const area = display.workArea;
+  const targetX = bounds.x - area.x < area.width / 2
+    ? area.x + ballBounds.edgeGap
+    : area.x + area.width - bounds.width - ballBounds.edgeGap;
+
+  if (!animate) {
+    ballWindow.setBounds({ ...bounds, x: targetX }, false);
+    return;
+  }
+
+  const startX = bounds.x;
+  const distance = targetX - startX;
+  const duration = 200;
+  const startTime = performance.now();
+
+  function tick() {
+    if (!ballWindow || ballWindow.isDestroyed()) return;
+    const elapsed = performance.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    ballWindow.setBounds({ ...ballWindow.getBounds(), x: startX + distance * eased }, false);
+    if (progress < 1) requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+}
+
+ipcMain.on('floating-ball:set-expanded', (_event, expanded: boolean) => {
   resizeBallWindow(expanded);
+});
+
+ipcMain.on('floating-ball:drag-start', (_event, info: { startX: number; startY: number }) => {
+  mainLog('📩 收到 dragStart', info);
+  if (!ballWindow || ballWindow.isDestroyed()) {
+    mainLog('❌ ballWindow 无效');
+    return;
+  }
+
+  if (dragTimer) clearInterval(dragTimer);
+  mainLog('🧹 清理旧 timer');
+
+  dragStartCursor = { x: info.startX, y: info.startY };
+  dragStartWindow = { x: ballWindow.getBounds().x, y: ballWindow.getBounds().y };
+  mainLog('📍 记录起始位置', { dragStartCursor, dragStartWindow });
+
+  const pollRate = Math.floor(1000 / 60);
+  mainLog('⏱️ 启动轮询', { pollRate });
+  dragTimer = setInterval(() => {
+    if (!ballWindow || ballWindow.isDestroyed()) {
+      mainLog('❌ 轮询中 ballWindow 失效');
+      if (dragTimer) clearInterval(dragTimer);
+      dragTimer = undefined;
+      return;
+    }
+
+    const cursor = screen.getCursorScreenPoint();
+    const bounds = ballWindow.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const area = display.workArea;
+
+    const newX = clamp(
+      dragStartWindow.x + (cursor.x - dragStartCursor.x),
+      area.x,
+      area.x + area.width - bounds.width,
+    );
+    const newY = clamp(
+      dragStartWindow.y + (cursor.y - dragStartCursor.y),
+      area.y,
+      area.y + area.height - bounds.height,
+    );
+
+    ballWindow.setPosition(Math.round(newX), Math.round(newY));
+  }, pollRate);
+});
+
+ipcMain.on('floating-ball:drag-stop', () => {
+  mainLog('📩 收到 dragStop');
+  if (dragTimer) {
+    clearInterval(dragTimer);
+    dragTimer = undefined;
+    mainLog('⏹️ 停止轮询');
+  }
+  snapToEdge(true);
+  mainLog('📎 执行吸附动画');
 });
 
 ipcMain.handle('floating-ball:boost', () => {
   sendBallStats();
   return getMemoryStats();
-});
-
-ipcMain.handle('floating-ball:move', (_event, delta: { deltaX: number; deltaY: number }) => {
-  moveBallWindow(delta);
 });
 
 app.whenReady().then(() => {

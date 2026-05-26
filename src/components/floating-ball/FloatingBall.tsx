@@ -1,21 +1,11 @@
 import { Gauge, X, Zap } from 'lucide-react';
-import type { CSSProperties, PointerEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { BallStats } from '../../types/floatingBall';
-
-const DRAG_THRESHOLD = 4;
 
 export function FloatingBall() {
   const [expanded, setExpanded] = useState(false);
   const [boosting, setBoosting] = useState(false);
-  const dragStateRef = useRef({
-    active: false,
-    moved: false,
-    lastX: 0,
-    lastY: 0,
-    totalX: 0,
-    totalY: 0,
-  });
   const [stats, setStats] = useState<BallStats>({
     percent: 0,
     usedMb: 0,
@@ -27,7 +17,11 @@ export function FloatingBall() {
   }, []);
 
   useEffect(() => {
-    void window.mmboard?.setFloatingBallExpanded(expanded);
+    return window.mmboard?.onMainLog((msg) => console.log(msg));
+  }, []);
+
+  useEffect(() => {
+    window.mmboard?.setFloatingBallExpanded(expanded);
   }, [expanded]);
 
   async function boost() {
@@ -37,76 +31,76 @@ export function FloatingBall() {
     window.setTimeout(() => setBoosting(false), 900);
   }
 
-  function startDrag(event: PointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0) return;
-
-    dragStateRef.current = {
-      active: true,
-      moved: false,
-      lastX: event.screenX,
-      lastY: event.screenY,
-      totalX: 0,
-      totalY: 0,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function drag(event: PointerEvent<HTMLButtonElement>) {
-    const dragState = dragStateRef.current;
-    if (!dragState.active) return;
-
-    const deltaX = event.screenX - dragState.lastX;
-    const deltaY = event.screenY - dragState.lastY;
-    if (deltaX === 0 && deltaY === 0) return;
-
-    dragState.totalX += deltaX;
-    dragState.totalY += deltaY;
-
-    if (Math.hypot(dragState.totalX, dragState.totalY) >= DRAG_THRESHOLD) {
-      dragState.moved = true;
-    }
-
-    dragState.lastX = event.screenX;
-    dragState.lastY = event.screenY;
-    void window.mmboard?.moveFloatingBall({ deltaX, deltaY });
-  }
-
-  function stopDrag(event: PointerEvent<HTMLButtonElement>) {
-    dragStateRef.current.active = false;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-  }
-
   function openExpanded() {
-    if (dragStateRef.current.moved) {
-      dragStateRef.current.moved = false;
-      return;
-    }
-
     setExpanded(true);
   }
 
+  const ballRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ballRef.current;
+    if (!el) { console.log('[球] ❌ ballRef.current 为空'); return; }
+    if (expanded) { console.log('[球] ℹ️ 已展开，跳过绑定 mousedown'); return; }
+
+    console.log('[球] ✅ 已绑定 mousedown 到 div 元素');
+
+    function onDown(event: MouseEvent) {
+      console.log('[球] 🔽 mousedown 触发', { button: event.button, screenX: event.screenX, screenY: event.screenY, target: event.target });
+      if (event.button !== 0) { console.log('[球] ⏭️ 非左键点击，忽略'); return; }
+
+      const startX = event.screenX;
+      const startY = event.screenY;
+      let moved = false;
+      console.log('[球] 📍 记录起始位置', { startX, startY });
+
+      function onMove(ev: MouseEvent) {
+        if (moved) return;
+        const dist = Math.hypot(ev.screenX - startX, ev.screenY - startY);
+        console.log('[球] 🖱️ mousemove', { screenX: ev.screenX, screenY: ev.screenY, dist });
+        if (dist <= 5) return;
+
+        moved = true;
+        console.log('[球] 🏁 超过 5px 阈值，发送 dragStart');
+        window.mmboard?.dragStart({ startX, startY });
+      }
+
+      function onUp() {
+        console.log('[球] 🔼 mouseup 触发', { moved });
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        if (moved) {
+          console.log('[球] 📦 发送 dragStop');
+          window.mmboard?.dragStop();
+        } else {
+          console.log('[球] 👆 未移动，视为点击展开');
+          openExpanded();
+        }
+      }
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      console.log('[球] 👂 已添加 window mousemove/mouseup 监听');
+    }
+
+    el.addEventListener('mousedown', onDown);
+    return () => {
+      console.log('[球] 🧹 清理 mousedown 监听');
+      el.removeEventListener('mousedown', onDown);
+    };
+  }, [expanded]);
+
   if (!expanded) {
     return (
-      <main
-        className="grid h-screen w-screen place-items-center bg-transparent p-2"
-        onPointerMove={drag}
-        onPointerUp={stopDrag}
-        onPointerCancel={stopDrag}
-      >
-        <div className="relative grid h-20 w-20 place-items-center rounded-full">
-          <button
-            type="button"
-            onPointerDown={startDrag}
-            onClick={openExpanded}
-            className="window-no-drag grid h-20 w-20 place-items-center rounded-full bg-floating-meter text-primary-foreground shadow-floating-ball transition hover:scale-[1.03]"
-            style={{ '--ball-percent': `${stats.percent}%`, touchAction: 'none' } as CSSProperties}
-            title="Open accelerator"
-          >
-            <span className="grid h-[64px] w-[64px] place-items-center rounded-full bg-floating-core shadow-inner">
-              <span className="text-xl font-semibold leading-none">{stats.percent}</span>
-              <span className="-mt-4 text-[10px] font-medium uppercase text-floating-label">mem</span>
-            </span>
-          </button>
+      <main className="grid h-screen w-screen place-items-center bg-transparent p-2">
+        <div
+          ref={ballRef}
+          className="grid h-20 w-20 place-items-center rounded-full bg-floating-meter text-primary-foreground shadow-floating-ball cursor-auto active:cursor-grabbing"
+          style={{ '--ball-percent': `${stats.percent}%` } as CSSProperties}
+        >
+          <span className="col-start-1 row-start-1 grid h-[64px] w-[64px] place-items-center rounded-full bg-floating-core shadow-inner">
+            <span className="text-xl font-semibold leading-none">{stats.percent}</span>
+            <span className="-mt-4 text-[10px] font-medium uppercase text-floating-label">mem</span>
+          </span>
         </div>
       </main>
     );
