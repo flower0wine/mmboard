@@ -1,181 +1,121 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import isDev from 'electron-is-dev';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-type DockEdge = 'left' | 'right' | 'top' | 'bottom';
-type FloatingMode = 'full' | 'compact';
-
-const fullBounds = {
-  width: 1040,
-  height: 700,
+const ballBounds = {
+  compact: 96,
+  expandedWidth: 280,
+  expandedHeight: 236,
+  edgeGap: 18,
 };
-const compactSize = 64;
-const edgeThreshold = 100;
-const edgeGap = 16;
-const autoCollapseDelay = 7000;
 
-let floatingMode: FloatingMode = 'full';
-let dockEdge: DockEdge = 'right';
-let moveCheckTimer: NodeJS.Timeout | undefined;
-let autoCollapseTimer: NodeJS.Timeout | undefined;
-let suppressMoveCheck = false;
-let expandedFromDock = false;
+let ballWindow: BrowserWindow | undefined;
+let statsTimer: NodeJS.Timeout | undefined;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function getNearestEdge(window: BrowserWindow): DockEdge | null {
-  const bounds = window.getBounds();
-  const display = screen.getDisplayMatching(bounds);
-  const area = display.workArea;
-  const distances: Array<[DockEdge, number]> = [
-    ['left', bounds.x - area.x],
-    ['right', area.x + area.width - (bounds.x + bounds.width)],
-    ['top', bounds.y - area.y],
-    ['bottom', area.y + area.height - (bounds.y + bounds.height)],
-  ];
-  const [edge, distance] = distances.sort((a, b) => a[1] - b[1])[0];
-
-  return distance <= edgeThreshold ? edge : null;
-}
-
-function getCompactBounds(window: BrowserWindow, edge: DockEdge) {
-  const bounds = window.getBounds();
-  const display = screen.getDisplayMatching(bounds);
-  const area = display.workArea;
-  const centerX = bounds.x + bounds.width / 2;
-  const centerY = bounds.y + bounds.height / 2;
-
-  if (edge === 'left' || edge === 'right') {
-    return {
-      x: edge === 'left' ? area.x + edgeGap : area.x + area.width - compactSize - edgeGap,
-      y: clamp(Math.round(centerY - compactSize / 2), area.y + edgeGap, area.y + area.height - compactSize - edgeGap),
-      width: compactSize,
-      height: compactSize,
-    };
+function loadRenderer(window: BrowserWindow, hash?: string) {
+  if (isDev && process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL);
+    if (hash) url.hash = hash;
+    void window.loadURL(url.toString());
+    return;
   }
 
+  void window.loadFile(path.join(__dirname, '../dist/index.html'), hash ? { hash } : undefined);
+}
+
+function getInitialBallBounds() {
+  const display = screen.getPrimaryDisplay();
+  const area = display.workArea;
+
   return {
-    x: clamp(Math.round(centerX - compactSize / 2), area.x + edgeGap, area.x + area.width - compactSize - edgeGap),
-    y: edge === 'top' ? area.y + edgeGap : area.y + area.height - compactSize - edgeGap,
-    width: compactSize,
-    height: compactSize,
+    x: area.x + area.width - ballBounds.compact - ballBounds.edgeGap,
+    y: area.y + Math.round(area.height * 0.36),
+    width: ballBounds.compact,
+    height: ballBounds.compact,
   };
 }
 
-function getExpandedBounds(window: BrowserWindow, edge: DockEdge) {
-  const bounds = window.getBounds();
-  const display = screen.getDisplayMatching(bounds);
-  const area = display.workArea;
-  const centerX = bounds.x + bounds.width / 2;
-  const centerY = bounds.y + bounds.height / 2;
-  const width = Math.min(fullBounds.width, area.width - edgeGap * 2);
-  const height = Math.min(fullBounds.height, area.height - edgeGap * 2);
-
-  if (edge === 'left' || edge === 'right') {
-    return {
-      x: edge === 'left' ? area.x + edgeGap : area.x + area.width - width - edgeGap,
-      y: clamp(Math.round(centerY - height / 2), area.y + edgeGap, area.y + area.height - height - edgeGap),
-      width,
-      height,
-    };
-  }
+function getMemoryStats() {
+  const memoryInfo = process.getSystemMemoryInfo();
+  const used = Math.max(memoryInfo.total - memoryInfo.free, 0);
+  const percent = memoryInfo.total > 0 ? Math.round((used / memoryInfo.total) * 100) : 0;
 
   return {
-    x: clamp(Math.round(centerX - width / 2), area.x + edgeGap, area.x + area.width - width - edgeGap),
-    y: edge === 'top' ? area.y + edgeGap : area.y + area.height - height - edgeGap,
-    width,
-    height,
+    percent,
+    usedMb: Math.round(used / 1024),
+    totalMb: Math.round(memoryInfo.total / 1024),
   };
 }
 
-function sendFloatingMode(window: BrowserWindow) {
-  window.webContents.send('floating-mode-changed', {
-    mode: floatingMode,
-    edge: dockEdge,
-  });
+function sendBallStats() {
+  if (!ballWindow || ballWindow.isDestroyed()) return;
+  ballWindow.webContents.send('floating-ball:stats', getMemoryStats());
 }
 
-function withSuppressedMoveCheck(work: () => void) {
-  suppressMoveCheck = true;
-  work();
-  setTimeout(() => {
-    suppressMoveCheck = false;
-  }, 250);
+function startStatsTimer() {
+  if (statsTimer) clearInterval(statsTimer);
+  statsTimer = setInterval(sendBallStats, 2000);
+  sendBallStats();
 }
 
-function collapseToDock(window: BrowserWindow, edge = getNearestEdge(window)) {
-  if (!edge || floatingMode === 'compact') return;
+function resizeBallWindow(expanded: boolean) {
+  if (!ballWindow || ballWindow.isDestroyed()) return;
 
-  dockEdge = edge;
-  floatingMode = 'compact';
-  expandedFromDock = false;
-  if (autoCollapseTimer) clearTimeout(autoCollapseTimer);
+  const bounds = ballWindow.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const area = display.workArea;
+  const nextWidth = expanded ? ballBounds.expandedWidth : ballBounds.compact;
+  const nextHeight = expanded ? ballBounds.expandedHeight : ballBounds.compact;
+  const right = Math.min(bounds.x + bounds.width, area.x + area.width - ballBounds.edgeGap);
+  const bottom = Math.min(bounds.y + bounds.height, area.y + area.height - ballBounds.edgeGap);
 
-  withSuppressedMoveCheck(() => {
-    window.setResizable(false);
-    window.setMinimumSize(compactSize, compactSize);
-    window.setBounds(getCompactBounds(window, dockEdge), true);
-  });
-  sendFloatingMode(window);
+  const nextBounds = {
+    x: Math.max(area.x + ballBounds.edgeGap, right - nextWidth),
+    y: Math.max(area.y + ballBounds.edgeGap, bottom - nextHeight),
+    width: nextWidth,
+    height: nextHeight,
+  };
+
+  ballWindow.setBounds(nextBounds, true);
 }
 
-function expandFromDock(window: BrowserWindow) {
-  if (floatingMode === 'full') return;
+function moveBallWindow(delta: { deltaX: number; deltaY: number }) {
+  if (!ballWindow || ballWindow.isDestroyed()) return;
 
-  floatingMode = 'full';
-  expandedFromDock = true;
+  const bounds = ballWindow.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const area = display.workArea;
 
-  withSuppressedMoveCheck(() => {
-    window.setResizable(true);
-    window.setMinimumSize(320, 320);
-    window.setBounds(getExpandedBounds(window, dockEdge), true);
-  });
-  sendFloatingMode(window);
-
-  if (autoCollapseTimer) clearTimeout(autoCollapseTimer);
-  autoCollapseTimer = setTimeout(() => {
-    if (expandedFromDock && getNearestEdge(window)) {
-      collapseToDock(window, dockEdge);
-    }
-  }, autoCollapseDelay);
+  ballWindow.setBounds(
+    {
+      ...bounds,
+      x: clamp(bounds.x + Math.round(delta.deltaX), area.x, area.x + area.width - bounds.width),
+      y: clamp(bounds.y + Math.round(delta.deltaY), area.y, area.y + area.height - bounds.height),
+    },
+    false,
+  );
 }
 
-function scheduleEdgeCheck(window: BrowserWindow) {
-  if (suppressMoveCheck || window.isDestroyed()) return;
-  if (moveCheckTimer) clearTimeout(moveCheckTimer);
-
-  moveCheckTimer = setTimeout(() => {
-    const edge = getNearestEdge(window);
-
-    if (!edge) {
-      expandedFromDock = false;
-      if (autoCollapseTimer) clearTimeout(autoCollapseTimer);
-      return;
-    }
-
-    if (floatingMode === 'full' && !expandedFromDock) {
-      collapseToDock(window, edge);
-    }
-  }, 180);
-}
-
-function createWindow() {
-  const mainWindow = new BrowserWindow({
-    width: fullBounds.width,
-    height: fullBounds.height,
-    minWidth: 320,
-    minHeight: 320,
-    title: 'mmboard',
-    backgroundColor: '#f6f7f4',
+function createBallWindow() {
+  ballWindow = new BrowserWindow({
+    ...getInitialBallBounds(),
+    title: 'mmboard ball',
+    backgroundColor: '#00000000',
     frame: false,
     transparent: true,
+    hasShadow: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: true,
     alwaysOnTop: true,
-    skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -184,39 +124,44 @@ function createWindow() {
     },
   });
 
-  mainWindow.setAlwaysOnTop(true, 'floating');
-  mainWindow.on('move', () => scheduleEdgeCheck(mainWindow));
-  mainWindow.on('resize', () => scheduleEdgeCheck(mainWindow));
-  mainWindow.webContents.on('did-finish-load', () => sendFloatingMode(mainWindow));
+  ballWindow.setAlwaysOnTop(true, 'screen-saver');
+  ballWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: 'deny' };
+  ballWindow.on('closed', () => {
+    ballWindow = undefined;
   });
 
-  if (isDev && process.env.VITE_DEV_SERVER_URL) {
-    void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    if (process.env.ELECTRON_OPEN_DEVTOOLS === 'true') {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
-  } else {
-    void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-  }
+  ballWindow.webContents.on('did-finish-load', () => {
+    sendBallStats();
+  });
+
+  loadRenderer(ballWindow, '/floating-ball');
 }
 
-ipcMain.handle('floating-window:expand', (event) => {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  if (window) expandFromDock(window);
+ipcMain.handle('floating-ball:set-expanded', (_event, expanded: boolean) => {
+  resizeBallWindow(expanded);
+});
+
+ipcMain.handle('floating-ball:boost', () => {
+  sendBallStats();
+  return getMemoryStats();
+});
+
+ipcMain.handle('floating-ball:move', (_event, delta: { deltaX: number; deltaY: number }) => {
+  moveBallWindow(delta);
 });
 
 app.whenReady().then(() => {
-  createWindow();
+  createBallWindow();
+  startStatsTimer();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (!ballWindow || ballWindow.isDestroyed()) createBallWindow();
   });
+});
+
+app.on('before-quit', () => {
+  if (statsTimer) clearInterval(statsTimer);
 });
 
 app.on('window-all-closed', () => {

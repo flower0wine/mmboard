@@ -3,9 +3,11 @@
 interface Window {
   mmboard?: {
     platform: NodeJS.Platform;
-    expandFloatingWindow: () => Promise<void>;
-    onFloatingModeChanged: (
-      callback: (state: { mode: 'full' | 'compact'; edge: 'left' | 'right' | 'top' | 'bottom' }) => void,
+    setFloatingBallExpanded: (expanded: boolean) => Promise<void>;
+    moveFloatingBall: (delta: { deltaX: number; deltaY: number }) => Promise<void>;
+    boostFloatingBall: () => Promise<{ percent: number; usedMb: number; totalMb: number }>;
+    onFloatingBallStats: (
+      callback: (stats: { percent: number; usedMb: number; totalMb: number }) => void,
     ) => () => void;
   };
 }

@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-frosted: var(--surface-frosted);
+  --color-surface-wash: var(--surface-wash);
+  --color-foreground-soft: var(--foreground-soft);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+  --color-primary-hover: var(--primary-hover);
+  --color-ring-soft: var(--ring-soft);
+  --color-memory-sage: var(--memory-sage);
+  --color-memory-amber: var(--memory-amber);
+  --color-memory-sky: var(--memory-sky);
+  --color-memory-rose: var(--memory-rose);
+  --color-floating-accent: var(--floating-accent);
+  --color-floating-core: var(--floating-core);
+  --color-floating-label: var(--floating-label);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-ball: var(--shadow-ball);
+  --shadow-floating-ball: var(--shadow-floating-ball);
+}
+
+@utility bg-floating-meter {
+  background-image:
+    radial-gradient(
+      circle at 34% 24%,
+      var(--floating-gloss-strong),
+      var(--floating-gloss-soft) 20%,
+      transparent 34%
+    ),
+    conic-gradient(
+      var(--floating-accent) 0 var(--ball-percent),
+      var(--floating-track) var(--ball-percent) 100%
+    );
+}
+
+:root {
+  --background: oklch(0.9900 0 0);
+  --foreground: oklch(0 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0 0 0);
+  --primary: oklch(0 0 0);
+  --primary-foreground: oklch(1 0 0);
+  --muted: oklch(0.9700 0 0);
+  --muted-foreground: oklch(0.4400 0 0);
+  --accent: oklch(0.9400 0 0);
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.6300 0.1900 23.0300);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.9200 0 0);
+  --input: oklch(0.9400 0 0);
+  --ring: oklch(0 0 0);
+  --surface: var(--card);
+  --surface-panel: color-mix(in oklch, var(--card) 88%, transparent);
+  --surface-subtle: var(--muted);
+  --surface-frosted: color-mix(in oklch, var(--card) 55%, transparent);
+  --surface-wash: color-mix(in oklch, var(--card) 50%, transparent);
+  --foreground-soft: color-mix(in oklch, var(--foreground) 68%, transparent);
+  --foreground-muted: var(--muted-foreground);
+  --border-soft: color-mix(in oklch, var(--surface) 60%, transparent);
+  --border-strong: color-mix(in oklch, var(--border) 70%, var(--foreground));
+  --primary-hover: color-mix(in oklch, var(--primary) 86%, var(--background));
+  --ring-soft: color-mix(in oklch, var(--ring) 10%, transparent);
+  --memory-sage: oklch(0.9200 0.0300 135);
+  --memory-amber: oklch(0.9100 0.0650 85);
+  --memory-sky: oklch(0.9100 0.0400 235);
+  --memory-rose: oklch(0.9000 0.0450 10);
+  --floating-accent: oklch(0.7600 0.1300 180);
+  --floating-track: color-mix(in oklch, var(--foreground) 76%, transparent);
+  --floating-gloss-strong: color-mix(in oklch, var(--primary-foreground) 90%, transparent);
+  --floating-gloss-soft: color-mix(in oklch, var(--primary-foreground) 16%, transparent);
+  --floating-core: color-mix(in oklch, var(--foreground) 88%, transparent);
+  --floating-label: color-mix(in oklch, var(--primary-foreground) 62%, transparent);
+  --shadow-soft: 0 18px 45px color-mix(in oklch, var(--foreground) 12%, transparent);
+  --shadow-ball: 0 16px 44px color-mix(in oklch, var(--foreground) 26%, transparent),
+    0 4px 12px color-mix(in oklch, var(--foreground) 14%, transparent);
+  --shadow-floating-ball: 0 8px 18px color-mix(in oklch, var(--foreground) 18%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--primary-foreground) 14%, transparent);
+}
+
+.dark {
+  --background: oklch(0 0 0);
+  --foreground: oklch(1 0 0);
+  --card: oklch(0.1400 0 0);
+  --card-foreground: oklch(1 0 0);
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0 0 0);
+  --muted: oklch(0.2300 0 0);
+  --muted-foreground: oklch(0.7200 0 0);
+  --accent: oklch(0.3200 0 0);
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.6900 0.2000 23.9100);
+  --destructive-foreground: oklch(0 0 0);
+  --border: oklch(0.2600 0 0);
+  --input: oklch(0.3200 0 0);
+  --ring: oklch(0.7200 0 0);
+  --surface: var(--card);
+  --surface-panel: color-mix(in oklch, var(--card) 88%, transparent);
+  --surface-subtle: var(--muted);
+  --surface-frosted: color-mix(in oklch, var(--card) 55%, transparent);
+  --surface-wash: color-mix(in oklch, var(--card) 50%, transparent);
+  --foreground-soft: color-mix(in oklch, var(--foreground) 68%, transparent);
+  --foreground-muted: var(--muted-foreground);
+  --border-soft: color-mix(in oklch, var(--surface) 60%, transparent);
+  --border-strong: color-mix(in oklch, var(--border) 70%, var(--foreground));
+  --primary-hover: color-mix(in oklch, var(--primary) 86%, var(--background));
+  --ring-soft: color-mix(in oklch, var(--ring) 10%, transparent);
+  --memory-sage: oklch(0.3100 0.0350 135);
+  --memory-amber: oklch(0.3300 0.0500 85);
+  --memory-sky: oklch(0.3000 0.0450 235);
+  --memory-rose: oklch(0.3100 0.0450 10);
+  --floating-accent: oklch(0.7600 0.1300 180);
+  --floating-track: color-mix(in oklch, var(--foreground) 30%, transparent);
+  --floating-gloss-strong: color-mix(in oklch, var(--foreground) 72%, transparent);
+  --floating-gloss-soft: color-mix(in oklch, var(--foreground) 16%, transparent);
+  --floating-core: color-mix(in oklch, var(--background) 88%, transparent);
+  --floating-label: color-mix(in oklch, var(--primary-foreground) 62%, transparent);
+  --shadow-soft: 0 18px 45px color-mix(in oklch, var(--foreground) 12%, transparent);
+  --shadow-ball: 0 16px 44px color-mix(in oklch, var(--foreground) 18%, transparent),
+    0 4px 12px color-mix(in oklch, var(--foreground) 12%, transparent);
+  --shadow-floating-ball: 0 8px 18px color-mix(in oklch, var(--foreground) 18%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+
+* {
+  border-color: var(--border);
+  outline-color: var(--ring);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
