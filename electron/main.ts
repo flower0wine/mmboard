@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import isDev from 'electron-is-dev';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ballBounds = {
   compact: 96,
@@ -12,6 +15,7 @@ const ballBounds = {
 let ballWindow: BrowserWindow | undefined;
 let statsTimer: NodeJS.Timeout | undefined;
 let dragTimer: NodeJS.Timeout | undefined;
+let snapTimer: NodeJS.Timeout | undefined;
 let dragStartCursor: { x: number; y: number } = { x: 0, y: 0 };
 let dragStartWindow: { x: number; y: number } = { x: 0, y: 0 };
 
@@ -133,6 +137,11 @@ function createBallWindow() {
 
 function snapToEdge(animate = true) {
   if (!ballWindow || ballWindow.isDestroyed()) return;
+  if (snapTimer) {
+    clearTimeout(snapTimer);
+    snapTimer = undefined;
+  }
+
   const bounds = ballWindow.getBounds();
   const display = screen.getDisplayMatching(bounds);
   const area = display.workArea;
@@ -155,11 +164,15 @@ function snapToEdge(animate = true) {
     const elapsed = performance.now() - startTime;
     const progress = Math.min(elapsed / duration, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
-    ballWindow.setBounds({ ...ballWindow.getBounds(), x: startX + distance * eased }, false);
-    if (progress < 1) requestAnimationFrame(tick);
+    ballWindow.setBounds({ ...ballWindow.getBounds(), x: Math.round(startX + distance * eased) }, false);
+    if (progress < 1) {
+      snapTimer = setTimeout(tick, 16);
+      return;
+    }
+    snapTimer = undefined;
   }
 
-  requestAnimationFrame(tick);
+  snapTimer = setTimeout(tick, 16);
 }
 
 ipcMain.on('floating-ball:set-expanded', (_event, expanded: boolean) => {
@@ -237,6 +250,8 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   if (statsTimer) clearInterval(statsTimer);
+  if (dragTimer) clearInterval(dragTimer);
+  if (snapTimer) clearTimeout(snapTimer);
 });
 
 app.on('window-all-closed', () => {
